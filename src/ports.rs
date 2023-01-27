@@ -2,33 +2,67 @@ use crate::{
     common_ports::MOST_COMMON_PORTS,
     model::{Port, Subdomain},
 };
-use rayon::prelude::*;
+use futures::StreamExt;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::{net::TcpStream, time::Duration};
+use std::time::Duration;
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 
-pub fn scan_ports(mut subdomain: Subdomain) -> Subdomain {
+pub async fn scan_ports(concurrency: usize, subdomain: Subdomain) -> Subdomain {
+    let mut ret = subdomain.clone();
     let socket_addresses: Vec<SocketAddr> = format!("{}:1024", subdomain.domain)
         .to_socket_addrs()
         .expect("port scanner: Creating socket address")
         .collect();
 
-    if socket_addresses.is_empty() {
+    if socket_addresses.len() == 0 {
         return subdomain;
     }
 
-    subdomain.open_ports = MOST_COMMON_PORTS
-        .into_par_iter()
-        .map(|port| scan_port(socket_addresses[0], *port))
-        .filter(|port| port.is_open) // filter closed ports
-        .collect();
-    subdomain
+    let socket_address = socket_addresses[0];
+
+    // Concurrent stream method 3: using channels
+    let (input_tx, input_rx) = mpsc::channel(concurrency);
+    let (output_tx, output_rx) = mpsc::channel(concurrency);
+
+    tokio::spawn(async move {
+        for port in MOST_COMMON_PORTS {
+            let _ = input_tx.send(*port).await;
+        }
+    });
+
+    let input_rx_stream = tokio_stream::wrappers::ReceiverStream::new(input_rx);
+    input_rx_stream
+        .for_each_concurrent(concurrency, |port| {
+            let output_tx = output_tx.clone();
+            async move {
+                let port = scan_port(socket_address, port).await;
+                if port.is_open {
+                    let _ = output_tx.send(port).await;
+                }
+            }
+        })
+        .await;
+    // close channel
+    drop(output_tx);
+
+    let output_rx_stream = tokio_stream::wrappers::ReceiverStream::new(output_rx);
+    ret.open_ports = output_rx_stream.collect().await;
+
+    ret
 }
 
-fn scan_port(mut socket_address: SocketAddr, port: u16) -> Port {
+async fn scan_port(mut socket_address: SocketAddr, port: u16) -> Port {
     let timeout = Duration::from_secs(3);
     socket_address.set_port(port);
 
-    let is_open = TcpStream::connect_timeout(&socket_address, timeout).is_ok();
+    let is_open = matches!(
+        tokio::time::timeout(timeout, TcpStream::connect(&socket_address)).await,
+        Ok(Ok(_)),
+    );
 
-    Port { port, is_open }
+    Port {
+        port: port,
+        is_open,
+    }
 }

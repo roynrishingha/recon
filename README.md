@@ -26,3 +26,9 @@ cargo build --release
 ```sh
 ./target/release/recon royrustdev.com
 ```
+
+or
+
+```sh
+cargo run --release -- royrustdev.com
+```
