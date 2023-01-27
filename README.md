@@ -1,5 +1,7 @@
 <h1 align="center">recon</h1>
 
+<p align="center">A port scanner cli for active reconnaissance</p>
+
 ## Usage
 
 1. clone locally
@@ -14,21 +16,27 @@ cd recon
 ```sh
 cargo build --release
 ```
-
-3. run
+### List modules
 
 ```sh
-./target/release/recon <example.com>
+cargo run -- modules
 ```
 
-### Example
+### Scan a target
 
 ```sh
-./target/release/recon royrustdev.com
+cargo run --release -- scan <example.com>
+```
+
+## Example
+
+```sh
+./target/release/recon modules
+./target/release/recon scan royrustdev.com
 ```
 
 or
 
 ```sh
-cargo run --release -- royrustdev.com
+cargo run --release -- scan royrustdev.com
 ```
